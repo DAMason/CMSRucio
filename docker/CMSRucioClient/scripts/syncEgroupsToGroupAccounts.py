@@ -7,44 +7,34 @@ import requests
 from rucio.client.client import Client
 from rucio.common.exception import AccountNotFound
 
-TO_STRIP = ['_Disk', '_Tape', '_Temp', '_Test', '_Disk_Test', '_Tape_Test']
-
-CRIC_GROUP_API = 'https://cms-cric.cern.ch/api/accounts/group/query/?json'
-
-# FIXME: Make this be read from a file
-role_group_mapping = {'CMS_higgs_DataManager': {'name': 'higgs', 'email': ''},
-                      'CMS_heavy-ions_DataManager': {'name': 'heavy_ions', 'email': ''},
-                      'CMS_top_DataManager': {'name': 'top', 'email': ''},
-                      # 'CMS_ReqMgr_DataManager': 'reqmgr',
-                      }
+CRIC_EGROUP_API = 'https://cms-cric.cern.ch/api/accounts/group/query/?json&role=rucio-group'
 
 
-def sync_roles_to_group_accounts():
-    result = requests.get(CRIC_GROUP_API, verify=False)  # Pods don't like the CRIC certificate
+def sync_egroups_to_group_accounts():
+    result = requests.get(CRIC_EGROUP_API, verify=False)  # Pods don't like the CRIC certificate
     all_cric_groups = json.loads(result.text)
 
     client = Client()
 
     for group, data in all_cric_groups.items():
-        if group in role_group_mapping:
-            group_name = role_group_mapping[group]['name']
-            group_email = role_group_mapping[group]['email']
-            print('Setting identities for %s' % group_name)
+
+        if 'egroups' in data and data['egroups'] and 'users' in data and data['users']:
+            group_name = data['egroups'][0].replace('-', '_').lower()
+            group_email = data['egroups'][0] + '@cern.ch'
+
             try:
                 client.get_account(group_name)
             except AccountNotFound:
                 print('Adding group account %s with %s' % (group_name, group_email))
                 client.add_account(group_name, 'GROUP', group_email)
 
+            # Note: This does not pick up email changes with the same DN
             group_info = {user['dn']: user['email'] for user in data['users']}
+
             current_identities = set(identity['identity'] for identity in client.list_identities(group_name))
-
             target_identities = set(group_info.keys())
-
             add_identities = target_identities - current_identities
             del_identities = current_identities - target_identities
-
-            # FIXME: This does not pick up email changes with the same DN
 
             for identity in add_identities:
                 print('Adding %s to %s with %s' % (identity, group_name, group_info[identity]))
@@ -56,6 +46,6 @@ def sync_roles_to_group_accounts():
 
 if __name__ == '__main__':
     """
-    Sync CRIC roles to Rucio group accounts
+    Synchronize e-groups with the Rucio role from CRIC to rucio
     """
-    sync_roles_to_group_accounts()
+    sync_egroups_to_group_accounts()

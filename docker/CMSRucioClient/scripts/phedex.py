@@ -82,7 +82,7 @@ class PhEDEx(object):
         """
 
         if options:
-            options = '&'.join([opt + '=' + urllib.quote(val) for opt, val in options.items()])
+            options = '&'.join([opt + '=' + urllib.parse.quote(val) for opt, val in options.items()])
         else:
             options = ''
 
@@ -199,7 +199,10 @@ class PhEDEx(object):
 
     def summary_blocks_at_site(self, pnn, prefix=None, since=None):
         if prefix:
-            params = {'node': pnn, 'dataset': '/%s*/*/*' % prefix}
+            if '/' in prefix:  # Our prefix contains an entire primary dataset
+                params = {'node': pnn, 'dataset': '/%s*/*' % prefix}
+            else:
+                params = {'node': pnn, 'dataset': '/%s*/*/*' % prefix}
         else:
             params = {'node': pnn, 'dataset': '/*/*/*'}
 
@@ -207,7 +210,7 @@ class PhEDEx(object):
             params['update_since'] = str(since)
 
         result = self.datasvc('blockreplicasummary', options=params)
-        retval = {i['name']: True for i in result['phedex']['block'] if i['replica'][0]['complete'] == 'y'}
+        retval = {i['name']: True for i in result['phedex']['block']}
         return retval
 
     def block_at_pnn_phedex(self, block=None, pnn=None):
@@ -229,8 +232,7 @@ class PhEDEx(object):
         try:
             at_pnn = bool('phedex' in result and
                           'block' in result['phedex'] and
-                          'replica' in result['phedex']['block'][0] and
-                          result['phedex']['block'][0]['replica'][0]['complete'] == 'y')
+                          'replica' in result['phedex']['block'][0])
         except IndexError:
             return None, False, False
 
@@ -261,6 +263,30 @@ class PhEDEx(object):
             exists = bool('phedex' in result and
                           'block' in result['phedex'] and
                           'replica' in result['phedex']['block'][0])
+        except IndexError:
+            return False
+
+        return exists
+
+    def block_known(self, block=None):
+        """
+        Use the PhEDEx data service to verify that a block exists
+
+        :param block: Block name (CMS) or dataset name (Rucio)
+        :return: boolean
+        """
+
+        if not block:
+            raise RuntimeError('You must supply a block and node name')
+
+        params = {'block': block}
+
+        result = self.datasvc('data', options=params)
+
+        try:
+            exists = bool('phedex' in result and
+                          'dbs' in result['phedex'] and
+                          result['phedex']['dbs'])
         except IndexError:
             return False
 
@@ -377,12 +403,15 @@ class PhEDEx(object):
     def blocks_at_site(self, pnn, prefix=None, since=None):
 
         if prefix:
-            params = {'node': pnn, 'dataset': '/%s*/*/*' % prefix}
+            if '/' in prefix:  # Our prefix contains an entire primary dataset
+                params = {'node': pnn, 'dataset': '/%s*/*' % prefix}
+            else:
+                params = {'node': pnn, 'dataset': '/%s*/*/*' % prefix}
         else:
             params = {'node': pnn, 'dataset': '/*/*/*'}
 
         result = self.datasvc('blockreplicas', options=params)
-        retval = {i['name']: i['files'] for i in result['phedex']['block'] if i['replica'][0]['complete'] == 'y'}
+        retval = {i['name']: i['files'] for i in result['phedex']['block']}
         return retval
 
     def subscriptions(self, pnn, pditem=None, since=None):
